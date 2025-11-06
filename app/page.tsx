@@ -93,7 +93,7 @@ export default function HomePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: message,
-          agent_id: 'learning-assistant-agent',
+          agent_id: '68fd263d71c6b27d6c8eb80f',
           request_type: requestType,
         }),
       })
@@ -101,16 +101,18 @@ export default function HomePage() {
       const data = await response.json()
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to fetch from agent')
+        const errorMsg = data.error || data.details || 'Failed to fetch from agent'
+        throw new Error(errorMsg)
       }
 
       if (!data.success) {
-        throw new Error('Agent request failed')
+        throw new Error(data.details || 'Agent request failed')
       }
 
       return data.response
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'An error occurred'
+      console.error('Agent call error:', errorMsg)
       setError(errorMsg)
       return null
     } finally {
