@@ -125,38 +125,100 @@ export default function HomePage() {
     saveTopic(topic)
 
     const explanationData = await callLearningAgent(
-      `Explain the concept of "${topic}" in simple language suitable for rural students. Use rural-context examples like farming, local environment, and daily life. Provide step-by-step breakdown.`,
+      `Explain the concept of "${topic}" in simple language suitable for rural students. Use rural-context examples like farming, local environment, and daily life. Provide step-by-step breakdown. Return JSON with explanation_sections array containing objects with title, content, example, and visual_description fields.`,
       'explain'
     )
 
     if (explanationData) {
-      // Parse explanation sections from response
-      const sections = explanationData.explanation_sections || [
-        {
-          title: `Introduction to ${topic}`,
-          content: explanationData.content || explanationData.explanation || '',
-          example: explanationData.example || '',
-          visual_description: explanationData.visual_description || '',
-        },
-      ]
-      setExplanationContent(sections)
-      setCurrentScreen('explanation')
+      console.log('Explanation data received:', explanationData)
+
+      let sections: ExplanationSection[] = []
+
+      // Handle if response is already an array
+      if (Array.isArray(explanationData)) {
+        sections = explanationData
+      }
+      // Handle if response has explanation_sections field
+      else if (explanationData.explanation_sections && Array.isArray(explanationData.explanation_sections)) {
+        sections = explanationData.explanation_sections
+      }
+      // Handle if response is a single object with content fields
+      else if (explanationData.content || explanationData.explanation || explanationData.title) {
+        sections = [
+          {
+            title: explanationData.title || `Understanding ${topic}`,
+            content: explanationData.content || explanationData.explanation || JSON.stringify(explanationData),
+            example: explanationData.example || explanationData.rural_example || '',
+            visual_description: explanationData.visual_description || explanationData.visual || '',
+          },
+        ]
+      }
+      // If response is a string, create a single section
+      else if (typeof explanationData === 'string') {
+        sections = [
+          {
+            title: `Understanding ${topic}`,
+            content: explanationData,
+            example: '',
+            visual_description: '',
+          },
+        ]
+      }
+      // Fallback: stringify the entire response
+      else {
+        sections = [
+          {
+            title: `Understanding ${topic}`,
+            content: JSON.stringify(explanationData, null, 2),
+            example: '',
+            visual_description: '',
+          },
+        ]
+      }
+
+      if (sections.length > 0) {
+        setExplanationContent(sections)
+        setCurrentScreen('explanation')
+      } else {
+        setError('No explanation content received. Please try again.')
+      }
     }
   }
 
   const handleStartQuiz = async () => {
     const quizData = await callLearningAgent(
-      `Generate 8 multiple choice questions to test understanding of "${selectedTopic}". Include mix of easy, medium, and hard difficulty. Return questions directly tied to the concept.`,
+      `Generate 8 multiple choice questions to test understanding of "${selectedTopic}". Include mix of easy, medium, and hard difficulty. Return JSON with questions array. Each question should have: question_number, difficulty, question_text, options (object with A, B, C, D keys), and correct_answer (letter).`,
       'quiz'
     )
 
     if (quizData) {
-      const questions = quizData.questions || [quizData]
-      setQuizQuestions(questions)
-      setCurrentQuestionIndex(0)
-      setSelectedAnswers({})
-      setShowFeedback(false)
-      setCurrentScreen('quiz')
+      console.log('Quiz data received:', quizData)
+
+      let questions: QuizQuestion[] = []
+
+      // Handle if response is already an array
+      if (Array.isArray(quizData)) {
+        questions = quizData.filter(q => q.question_text && q.options)
+      }
+      // Handle if response has questions field
+      else if (quizData.questions && Array.isArray(quizData.questions)) {
+        questions = quizData.questions.filter((q: any) => q.question_text && q.options)
+      }
+      // Handle if response is a single question
+      else if (quizData.question_text && quizData.options) {
+        questions = [quizData]
+      }
+
+      if (questions.length > 0) {
+        setQuizQuestions(questions)
+        setCurrentQuestionIndex(0)
+        setSelectedAnswers({})
+        setShowFeedback(false)
+        setCurrentAnswerFeedback(null)
+        setCurrentScreen('quiz')
+      } else {
+        setError('Failed to generate quiz questions. Please try again.')
+      }
     }
   }
 
@@ -169,20 +231,34 @@ export default function HomePage() {
       return
     }
 
+    const isCorrect = studentAnswer === currentQuestion.correct_answer
+
     const evaluationData = await callLearningAgent(
-      `Evaluate this answer: Question: "${currentQuestion.question_text}" Student's answer: "${studentAnswer}" (option). Correct answer: "${currentQuestion.correct_answer}". Provide detailed feedback explaining why the correct answer is right and why the student's answer might be wrong.`,
+      `Evaluate this answer: Question: "${currentQuestion.question_text}" Student selected option "${studentAnswer}": "${currentQuestion.options[studentAnswer as keyof typeof currentQuestion.options]}" Correct answer is "${currentQuestion.correct_answer}": "${currentQuestion.options[currentQuestion.correct_answer as keyof typeof currentQuestion.options]}". Is the student correct? ${isCorrect ? 'Yes' : 'No'}. Provide detailed feedback explaining why the correct answer is right ${!isCorrect ? 'and why the student\'s answer is incorrect' : ''}.`,
       'evaluate'
     )
 
     if (evaluationData) {
+      let feedbackText = ''
+
+      // Handle various response formats
+      if (typeof evaluationData === 'string') {
+        feedbackText = evaluationData
+      } else if (evaluationData.feedback) {
+        feedbackText = evaluationData.feedback
+      } else if (evaluationData.explanation) {
+        feedbackText = evaluationData.explanation
+      } else if (evaluationData.message) {
+        feedbackText = evaluationData.message
+      } else {
+        feedbackText = JSON.stringify(evaluationData)
+      }
+
       const feedback: StudentAnswer = {
         question_number: currentQuestion.question_number,
         student_answer: studentAnswer,
-        is_correct: studentAnswer === currentQuestion.correct_answer,
-        feedback:
-          evaluationData.feedback ||
-          evaluationData.explanation ||
-          `Correct answer: ${currentQuestion.correct_answer}`,
+        is_correct: isCorrect,
+        feedback: feedbackText,
       }
       setCurrentAnswerFeedback(feedback)
       setShowFeedback(true)
